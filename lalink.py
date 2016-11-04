@@ -10,10 +10,12 @@ from grab import Grab
 import logging
 import tarfile
 from ftplib import FTP
-from urlparse import urlparse
-from urlparse import urlunsplit
+from urllib.parse import urlparse
+from urllib.parse import urlunsplit
+
 
 class Linker:
+    DATE = time.strftime('%Y-%m-%d_%H-%M-%S')
 
     HOSTLIST = []
 
@@ -23,37 +25,46 @@ class Linker:
 
     GRABCOUNT = 0
 
-
     def recursGrab(self):
         for url in self.LINKLIST:
 
             grabbedPage = self.grabLinks(url)
+            logging.info(self.filterList(grabbedPage))
+            print (self.filterList(grabbedPage))
             if isinstance(grabbedPage, list):
                 grabLinkList = self.filterList(self.delDouble(grabbedPage))
                 grabCount = len(grabLinkList)
                 if grabCount > 0:
                     self.addLinkList(grabLinkList)
+            if isinstance(grabbedPage, bool) and grabbedPage == False:
+                self.FINISHEDLINKLIST.update({url: 'ERROR'})
             self.LINKLIST.remove(url)
 
         if len(self.LINKLIST) > 0:
             self.recursGrab()
 
-
     def grabLinks(self, url):
         grabLinkList = list()
         g = Grab()
-        g.go(url)
-        self.FINISHEDLINKLIST.update({url: g.response.code})
-        if g.response.code == 200:
-            links = g.doc.select('//*[@href]')
-            for link in links:
-                grabLinkList.append(link.attr('href'))
-            return grabLinkList
-        if g.response.code == 404:
-            return '404 Found'
-        else:
-            return 'Error connect'
-
+        print (url)
+        logging.info(url)
+        try:
+            g.setup(timeout=30, connect_timeout=40)
+            g.go(url)
+            print (g.response.code)
+            logging.info(g.response.code)
+            self.FINISHEDLINKLIST.update({url: g.response.code})
+            if g.response.code == 200:
+                links = g.doc.select('//*[@href]')
+                for link in links:
+                    grabLinkList.append(link.attr('href'))
+                return grabLinkList
+            if g.response.code == 404:
+                return '404 Found'
+            else:
+                return 'Error connect'
+        except:
+            return False
 
     def delDouble(self, linkList):
         uniqueLinkList = list()
@@ -64,14 +75,12 @@ class Linker:
                 continue
         return uniqueLinkList
 
-
     def addLinkList(self, linkList):
         for link in linkList:
             if link not in self.LINKLIST and link not in self.FINISHEDLINKLIST.keys():
                 self.LINKLIST.append(link)
             else:
                 continue
-
 
     def filterList(self, linkList):
         filteredList = list()
@@ -98,6 +107,17 @@ class Linker:
 
         return filteredList
 
+    def generateListFile(pageMap):
+        fw = open('list.html', "wt")
+        fw.write(
+            '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8" />\n<title></title>\n</head>\n<body>\n')
+        n = 1
+        for i in pageMap:
+            fw.write('<a href="%s">%s. %s</a><br>\n' % (i, n, i))
+            n = n + 1
+        # end for
+        fw.write('\n</body>\n</html>\n')
+        fw.close()
 
     def getHost(self, site):
         urlParse = urlparse(site)
@@ -109,16 +129,14 @@ class Linker:
             self.HOSTLIST.append(urlunsplit([urlParse.scheme, 'www.' + urlParse.netloc, '', '', '']))
         else:
             self.HOSTLIST.append(urlunsplit([urlParse.scheme, urlParse.netloc[4:], '', '', '']))
-
+        self.HOSTLIST.append(urlParse.netloc.replace(".", "_"))
         return True
-
 
     def createParser(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('-s', '--site', default='')
 
         return parser
-
 
     def main(self):
         parser = self.createParser()
@@ -131,17 +149,21 @@ class Linker:
                     namespace.site))
             host = self.getHost(namespace.site)
             if isinstance(host, bool) and host == True:
-
+                logging.basicConfig(filename=self.HOSTLIST[2] + '_' + self.DATE + '.log', level=logging.INFO)
+                logging.info('Started')
                 print (self.HOSTLIST)
                 self.LINKLIST.append(self.HOSTLIST[0])
                 self.recursGrab()
-                self.FINISHEDLINKLIST = OrderedDict(sorted(self.FINISHEDLINKLIST.items(), key=lambda x: x[0], reverse=False))
-                self.FINISHEDLINKLIST = OrderedDict(sorted(self.FINISHEDLINKLIST.items(), key=lambda x: x[1], reverse=False))
+                self.FINISHEDLINKLIST = OrderedDict(
+                    sorted(self.FINISHEDLINKLIST.items(), key=lambda x: x[0], reverse=False))
+                self.FINISHEDLINKLIST = OrderedDict(
+                    sorted(self.FINISHEDLINKLIST.items(), key=lambda x: x[1], reverse=False))
                 # print sorted(self.FINISHEDLINKLIST.items(), key=lambda (k, v): v, reverse=True)
                 count = len(self.FINISHEDLINKLIST)
                 for (link, code) in self.FINISHEDLINKLIST.items():
-                    print ('{} - {}'.format(code, link))
+                    print ('{} - {}'.format(code, link.encode('utf-8')))
                 print ('Ссылок найдено: %d' % count)
+                logging.info('Finished')
             else:
                 print (host)
 
